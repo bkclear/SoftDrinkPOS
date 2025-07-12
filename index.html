@@ -14,8 +14,8 @@
       --border-color: #e0e0e0;
       --shadow-color: rgba(0, 0, 0, 0.05);
       --danger-color: #e53935;
-      --success-color: #2e7d32;
       --info-color: #007bff;
+      --secondary-color: #555;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -56,7 +56,6 @@
         font-size: 0.9rem;
     }
 
-    /* NEW: Network Status Indicator Styles */
     #network-status {
         display: flex;
         align-items: center;
@@ -70,7 +69,7 @@
         border-radius: 50%;
         transition: background-color 0.3s;
     }
-    .status-dot.online { background-color: var(--success-color); }
+    .status-dot.online { background-color: #2e7d32; }
     .status-dot.offline {
         background-color: var(--danger-color);
         animation: flash 1.5s linear infinite;
@@ -160,9 +159,7 @@
     }
     .toggle-header { background: #fff; border: 1px solid var(--border-color); border-radius: 6px; margin-top: 0.75rem; padding: 0.75rem 1rem; cursor: pointer; display: flex; justify-content: space-between; font-weight: 600; font-size: 0.95rem; }
     .toggle-content { display: none; padding: 1rem; border: 1px solid var(--border-color); border-top: none; border-radius: 0 0 6px 6px; font-size: 0.9rem; }
-    .toggle-content input, .toggle-content select, .toggle-content button { font-size: 0.95rem; padding: 0.6rem; margin-bottom: 0.6rem; border-radius: 4px; }
-    .toggle-content button { padding: 0.75rem 1rem; }
-
+    
     #loadingOverlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; justify-content: center; align-items: center; color: white; flex-direction: column; font-size: 1.1rem; }
     .spinner { width: 50px; height: 50px; border: 6px solid #f3f3f3; border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 0.75rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -176,11 +173,25 @@
     .receipt-total-line { display: flex; justify-content: space-between; font-weight: bold; }
     .receipt-footer { text-align: center; margin-top: 15px; }
 
-
+    /* MODIFIED: Updated print styles for better reliability */
     @media print {
-      body * { visibility: hidden; }
-      .receipt, .receipt * { visibility: visible; }
-      .receipt { position: absolute; left: 0; top: 0; width: 100%; display: block !important; }
+      body {
+        -webkit-print-color-adjust: exact; /* Ensures colors print correctly in Chrome */
+        print-color-adjust: exact;
+      }
+      .no-print {
+        display: none !important; /* This class hides elements from printing */
+      }
+      .receipt, .receipt * {
+        visibility: visible;
+      }
+      .receipt {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        display: block !important;
+      }
     }
   </style>
 </head>
@@ -191,7 +202,7 @@
   <div id="receipt-print-area" class="receipt"></div>
 
   <div class="app-container">
-    <header>
+    <header class="no-print">
       <div class="header-left">
         <h2>SoftDrinks POS</h2>
         <div id="network-status">
@@ -202,12 +213,11 @@
       <button id="view-toggle-btn" onclick="toggleView()">Switch to Admin</button>
     </header>
 
-    <main id="sales-view" class="sales-view">
+    <main id="sales-view" class="sales-view no-print">
       <div id="product-panel">
         <input type="search" id="product-search" placeholder="🔍 Search products..." onkeyup="renderProductGrid()">
         <div id="product-grid"></div>
       </div>
-
       <div id="cart-panel">
         <h3>Current Sale</h3>
         <div class="cart-items">
@@ -215,12 +225,10 @@
         </div>
         <div class="cart-summary">
           <div class="total-line"><span>TOTAL</span><span id="cart-total">₱0.00</span></div>
-          
           <div id="payment-form">
             <input id="cash_received" type="number" placeholder="Cash Received" style="width:100%; padding:0.75rem; margin-bottom:0.75rem;">
             <button onclick="processSale()" style="width:100%; padding:1rem; font-size:1.1rem; background-color:var(--primary-color); color:white; border:none; border-radius:6px;">Process Sale</button>
           </div>
-
           <div id="post-sale-info" style="display: none;">
             <div class="change-display">Change: <span id="change-due"></span></div>
             <div class="post-sale-buttons">
@@ -232,15 +240,13 @@
       </div>
     </main>
 
-    <main id="admin-view" class="admin-view" style="display: none;">
+    <main id="admin-view" class="admin-view no-print" style="display: none;">
       <div class="toggle-header" onclick="toggleSection('addProductSection')"><span>➕ Add New Product</span><span>▼</span></div>
       <div id="addProductSection" class="toggle-content"></div>
-      
       <div class="toggle-header" onclick="toggleSection('salesHistorySection')"><span>📅 Sales History</span><span>▼</span></div>
       <div id="salesHistorySection" class="toggle-content">
           <table id="salesTable"><thead><tr><th>Details</th><th>Total</th><th>Time</th><th>Action</th></tr></thead><tbody></tbody></table>
       </div>
-
       <div class="toggle-header" onclick="toggleSection('expensesSection')"><span>💸 Expenses History</span><span>▼</span></div>
       <div id="expensesSection" class="toggle-content">
           <table id="expensesTable"><thead><tr><th>Description</th><th>Amount</th><th>Status</th><th>Time</th></tr></thead><tbody></tbody></table>
@@ -261,7 +267,7 @@
 
     async function initializeApp() {
         showLoader(true);
-        updateStatus(); // Initial status check
+        updateStatus();
         document.getElementById('addProductSection').innerHTML = `<input id="add_name" placeholder="Product Name" /><input id="add_unit" placeholder="Unit" /><input id="add_buy_price" type="number" placeholder="Buy Price" /><input id="add_price" type="number" placeholder="Sell Price" /><input id="add_stock" type="number" placeholder="Stock" /><select id="add_paid"><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select><button onclick="addProduct()">Add Product</button>`;
         try {
             await loadInventory();
@@ -274,11 +280,9 @@
         finally { showLoader(false); }
     }
 
-    // MODIFIED: This function now controls the status dot
     function updateStatus() {
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.getElementById('status-text');
-        
         if (navigator.onLine) {
             statusDot.className = 'status-dot online';
             statusText.textContent = 'Online';
@@ -288,7 +292,7 @@
             statusText.textContent = 'Offline';
         }
     }
-
+    
     const showLoader = (show) => { document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none'; };
     const toggleSection = (id) => { const el = document.getElementById(id); el.style.display = el.style.display === 'block' ? 'none' : 'block'; };
 
@@ -353,19 +357,16 @@
     }
     
     function addToCart(name, price, qty = 1) {
+        if(cart.length === 0) {
+            resetPaymentUI();
+        }
         const item = inventoryData.find(p => p[0] === name);
         const availableStock = parseInt(item[2]);
         const existingCartItem = cart.find(i => i.name === name);
         const qtyInCart = existingCartItem ? existingCartItem.qty : 0;
         if (qty + qtyInCart > availableStock) return alert(`Not enough stock for ${name}. Available: ${availableStock}`);
-        
-        if(cart.length === 0) {
-            resetPaymentUI();
-        }
-        
         if (existingCartItem) existingCartItem.qty += qty;
         else cart.push({ name, price, qty, total: qty * price });
-        
         updateCartUI();
     }
 
@@ -438,25 +439,18 @@
     
     function printLastReceipt() {
         if (!lastTransactionDetails) return alert("No recent transaction to print.");
-        
         const receiptEl = document.getElementById('receipt-print-area');
         renderReceiptContent(receiptEl, lastTransactionDetails);
-        
         receiptEl.style.display = 'block';
-        
         setTimeout(() => {
             window.print();
             receiptEl.style.display = 'none';
-        }, 50);
+        }, 100);
     }
 
     function renderReceiptContent(element, transaction) {
         const timeLocal = new Date(transaction.timestamp).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
-        
-        const itemsHTML = transaction.items.map(i => 
-            `<div class="receipt-item-line"><span>${i.qty}x ${i.name}</span><span>₱${i.total.toFixed(2)}</span></div>`
-        ).join('');
-
+        const itemsHTML = transaction.items.map(i => `<div class="receipt-item-line"><span>${i.qty}x ${i.name}</span><span>₱${i.total.toFixed(2)}</span></div>`).join('');
         element.innerHTML = `
             <div class="receipt-header">
                 <div class="receipt-title">LLAVORE VARIETY STORE</div>
@@ -493,45 +487,33 @@
         setTimeout(() => {
             window.print();
             receiptEl.style.display = 'none';
-        }, 50);
+        }, 100);
     }
 
     async function syncOfflineData() {
         if (!navigator.onLine || syncQueue.length === 0) return;
-        
         showLoader(true);
         const unsynced = [...syncQueue];
-        
         try {
             const syncPromises = unsynced.map(item => {
                 const formData = new URLSearchParams(item);
-                return fetch(SHEET_URL, { 
-                    method: "POST", 
-                    body: formData,
-                    headers: { "Content-Type": "application/x-www-form-urlencoded" }
-                });
+                return fetch(SHEET_URL, { method: "POST", body: formData });
             });
-
             const results = await Promise.all(syncPromises);
-
             if (results.every(res => res.ok)) {
                 alert(`✅ Sync complete! ${unsynced.length} offline transaction(s) processed.`);
                 syncQueue = [];
                 localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
                 await initializeApp();
-            } else {
-                throw new Error("Some transactions failed to sync.");
-            }
+            } else { throw new Error("Some transactions failed to sync."); }
         } catch (e) {
             console.error("❌ Sync failed:", e);
-            alert("Sync failed. Some transactions may not have been saved. Please check your internet connection and try again.");
-        } finally {
-            showLoader(false);
-        }
+            alert("Sync failed. Please check your internet connection and try again.");
+        } finally { showLoader(false); }
     }
     
-    async function loadSalesToday() { /* Logic for dashboard if needed */ }
-    async function loadExpensesHistory() { /* Logic for expenses table */ }
+    async function loadSalesToday() { /* For dashboard if needed */ }
+    async function loadExpensesHistory() { /* For expenses table */ }
     async function addProduct() { /* Logic to add product */ }
 
   </script>
