@@ -14,7 +14,6 @@
       --border-color: #e0e0e0;
       --shadow-color: rgba(0, 0, 0, 0.05);
       --danger-color: #e53935;
-      --secondary-color: #555;
       --info-color: #007bff;
     }
 
@@ -167,7 +166,7 @@
 
   <div class="app-container">
     <header>
-      <h2>Llavore Variety Store</h2>
+      <h2>SoftDrinks POS</h2>
       <button id="view-toggle-btn" onclick="toggleView()">Switch to Admin</button>
     </header>
 
@@ -258,7 +257,6 @@
         }
     }
     
-    // MODIFIED: This function is now also called by the "New Sale" button
     function resetPaymentUI() {
         document.getElementById('payment-form').style.display = 'block';
         document.getElementById('post-sale-info').style.display = 'none';
@@ -305,14 +303,13 @@
     }
     
     function addToCart(name, price, qty = 1) {
-        // No longer resets payment UI here, to allow viewing last transaction
         const item = inventoryData.find(p => p[0] === name);
         const availableStock = parseInt(item[2]);
         const existingCartItem = cart.find(i => i.name === name);
         const qtyInCart = existingCartItem ? existingCartItem.qty : 0;
         if (qty + qtyInCart > availableStock) return alert(`Not enough stock for ${name}. Available: ${availableStock}`);
         
-        if(cart.length === 0) { // If starting a new cart after a sale, reset the payment UI
+        if(cart.length === 0) {
             resetPaymentUI();
         }
         
@@ -336,11 +333,12 @@
     function removeCart(index) {
         cart.splice(index, 1);
         updateCartUI();
-        if(cart.length === 0) { // If cart becomes empty, reset payment UI
+        if(cart.length === 0) {
             resetPaymentUI();
         }
     }
 
+    // MODIFIED: processSale function to handle offline logic correctly
     async function processSale() {
         if (cart.length === 0) return alert("Cart is empty!");
         const grandTotal = cart.reduce((sum, item) => sum + item.total, 0);
@@ -350,35 +348,46 @@
         showLoader(true);
         const timeISO = new Date().toISOString();
         
-        try {
-            const salePromises = cart.map(item => {
-                const data = { action: "sell", product: item.name, quantity: item.qty, price: item.price, total: item.total, time: timeISO };
-                return navigator.onLine ? fetch(SHEET_URL, { method: "POST", body: new URLSearchParams(data) }) : syncQueue.push(data) && Promise.resolve();
-            });
-            await Promise.all(salePromises);
+        const transactionDetails = {
+            items: [...cart], grandTotal, cashReceived, change: cashReceived - grandTotal, timestamp: timeISO
+        };
 
-            lastTransactionDetails = {
-                items: [...cart], grandTotal, cashReceived, change: cashReceived - grandTotal, timestamp: timeISO
-            };
-            saveTransactionToHistory(lastTransactionDetails);
-            
-            document.getElementById('payment-form').style.display = 'none';
-            document.getElementById('change-due').textContent = `₱${lastTransactionDetails.change.toFixed(2)}`;
-            document.getElementById('post-sale-info').style.display = 'block';
-
-            cart = [];
-            updateCartUI();
-            
-            await loadInventory();
-            renderProductGrid();
-            loadSalesHistory();
-            if (navigator.onLine) await loadSalesToday();
-
-        } catch(error) {
-            alert("An error occurred. Sale data saved for offline sync.");
-        } finally {
-            showLoader(false);
+        if (navigator.onLine) {
+            try {
+                const salePromises = cart.map(item => {
+                    const data = { action: "sell", product: item.name, quantity: item.qty, price: item.price, total: item.total, time: timeISO };
+                    return fetch(SHEET_URL, { method: "POST", body: new URLSearchParams(data) });
+                });
+                await Promise.all(salePromises);
+            } catch (error) {
+                console.error("Online sale submission failed, saving to sync queue.", error);
+                // If online submission fails, treat as offline and queue it
+                cart.forEach(item => syncQueue.push({ action: "sell", ...item, time: timeISO }));
+                localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
+            }
+        } else {
+            // If offline, add each item to the sync queue
+            cart.forEach(item => syncQueue.push({ action: "sell", product: item.name, quantity: item.qty, price: item.price, total: item.total, time: timeISO }));
+            localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
         }
+
+        // This part runs regardless of online/offline status
+        lastTransactionDetails = transactionDetails;
+        saveTransactionToHistory(transactionDetails);
+        
+        document.getElementById('payment-form').style.display = 'none';
+        document.getElementById('change-due').textContent = `₱${lastTransactionDetails.change.toFixed(2)}`;
+        document.getElementById('post-sale-info').style.display = 'block';
+
+        cart = [];
+        updateCartUI();
+        
+        await loadInventory();
+        renderProductGrid();
+        loadSalesHistory();
+        if (navigator.onLine) await loadSalesToday();
+
+        showLoader(false);
     }
     
     function printLastReceipt() {
@@ -434,10 +443,49 @@
         }, 50);
     }
 
+    // MODIFIED: syncOfflineData function to ensure data is sent correctly
+    async function syncOfflineData() {
+        if (!navigator.onLine || syncQueue.length === 0) return;
+        
+        showLoader(true);
+        const unsynced = [...syncQueue];
+        
+        try {
+            const syncPromises = unsynced.map(item => {
+                // Ensure the 'action' parameter is correctly included
+                const formData = new URLSearchParams(item);
+                return fetch(SHEET_URL, { 
+                    method: "POST", 
+                    body: formData,
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" }
+                });
+            });
+
+            const results = await Promise.all(syncPromises);
+
+            // Check if all requests were successful
+            if (results.every(res => res.ok)) {
+                alert(`✅ Sync complete! ${unsynced.length} offline transaction(s) processed.`);
+                syncQueue = []; // Clear queue only on full success
+                localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
+                await initializeApp(); // Refresh all data
+            } else {
+                throw new Error("Some transactions failed to sync.");
+            }
+        } catch (e) {
+            console.error("❌ Sync failed:", e);
+            alert("Sync failed. Some transactions may not have been saved. Please check your internet connection and try again.");
+            // Note: On failure, syncQueue is not cleared, so it can be retried.
+        } finally {
+            showLoader(false);
+        }
+    }
+    
+    // Placeholder functions for Admin panel
     async function loadSalesToday() { /* Logic for dashboard if needed */ }
     async function loadExpensesHistory() { /* Logic for expenses table */ }
     async function addProduct() { /* Logic to add product */ }
-    async function syncOfflineData() { /* Logic for offline sync */ }
+
   </script>
 </body>
 </html>
