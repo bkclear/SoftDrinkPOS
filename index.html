@@ -14,6 +14,7 @@
       --border-color: #e0e0e0;
       --shadow-color: rgba(0, 0, 0, 0.05);
       --danger-color: #e53935;
+      --success-color: #2e7d32;
       --info-color: #007bff;
     }
 
@@ -42,6 +43,7 @@
         align-items: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    .header-left { display: flex; align-items: center; gap: 1rem; }
     header h2 { margin: 0; font-size: 1.2rem; }
     #view-toggle-btn {
         padding: 0.5rem 1rem;
@@ -52,6 +54,30 @@
         border-radius: 6px;
         transition: background-color 0.2s;
         font-size: 0.9rem;
+    }
+
+    /* NEW: Network Status Indicator Styles */
+    #network-status {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+    .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        transition: background-color 0.3s;
+    }
+    .status-dot.online { background-color: var(--success-color); }
+    .status-dot.offline {
+        background-color: var(--danger-color);
+        animation: flash 1.5s linear infinite;
+    }
+    @keyframes flash {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
     }
 
     .sales-view {
@@ -166,7 +192,13 @@
 
   <div class="app-container">
     <header>
-      <h2>SoftDrinks POS</h2>
+      <div class="header-left">
+        <h2>SoftDrinks POS</h2>
+        <div id="network-status">
+          <div class="status-dot"></div>
+          <span id="status-text"></span>
+        </div>
+      </div>
       <button id="view-toggle-btn" onclick="toggleView()">Switch to Admin</button>
     </header>
 
@@ -224,9 +256,12 @@
     let lastTransactionDetails = null;
 
     window.onload = initializeApp;
+    window.addEventListener("online", updateStatus);
+    window.addEventListener("offline", updateStatus);
 
     async function initializeApp() {
         showLoader(true);
+        updateStatus(); // Initial status check
         document.getElementById('addProductSection').innerHTML = `<input id="add_name" placeholder="Product Name" /><input id="add_unit" placeholder="Unit" /><input id="add_buy_price" type="number" placeholder="Buy Price" /><input id="add_price" type="number" placeholder="Sell Price" /><input id="add_stock" type="number" placeholder="Stock" /><select id="add_paid"><option value="Paid">Paid</option><option value="Not Paid">Not Paid</option></select><button onclick="addProduct()">Add Product</button>`;
         try {
             await loadInventory();
@@ -237,6 +272,21 @@
             }
         } catch (e) { console.error("Initialization failed:", e); } 
         finally { showLoader(false); }
+    }
+
+    // MODIFIED: This function now controls the status dot
+    function updateStatus() {
+        const statusDot = document.querySelector('.status-dot');
+        const statusText = document.getElementById('status-text');
+        
+        if (navigator.onLine) {
+            statusDot.className = 'status-dot online';
+            statusText.textContent = 'Online';
+            syncOfflineData();
+        } else {
+            statusDot.className = 'status-dot offline';
+            statusText.textContent = 'Offline';
+        }
     }
 
     const showLoader = (show) => { document.getElementById('loadingOverlay').style.display = show ? 'flex' : 'none'; };
@@ -338,7 +388,6 @@
         }
     }
 
-    // MODIFIED: processSale function to handle offline logic correctly
     async function processSale() {
         if (cart.length === 0) return alert("Cart is empty!");
         const grandTotal = cart.reduce((sum, item) => sum + item.total, 0);
@@ -361,17 +410,14 @@
                 await Promise.all(salePromises);
             } catch (error) {
                 console.error("Online sale submission failed, saving to sync queue.", error);
-                // If online submission fails, treat as offline and queue it
                 cart.forEach(item => syncQueue.push({ action: "sell", ...item, time: timeISO }));
                 localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
             }
         } else {
-            // If offline, add each item to the sync queue
             cart.forEach(item => syncQueue.push({ action: "sell", product: item.name, quantity: item.qty, price: item.price, total: item.total, time: timeISO }));
             localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
         }
 
-        // This part runs regardless of online/offline status
         lastTransactionDetails = transactionDetails;
         saveTransactionToHistory(transactionDetails);
         
@@ -392,9 +438,12 @@
     
     function printLastReceipt() {
         if (!lastTransactionDetails) return alert("No recent transaction to print.");
+        
         const receiptEl = document.getElementById('receipt-print-area');
         renderReceiptContent(receiptEl, lastTransactionDetails);
+        
         receiptEl.style.display = 'block';
+        
         setTimeout(() => {
             window.print();
             receiptEl.style.display = 'none';
@@ -403,7 +452,11 @@
 
     function renderReceiptContent(element, transaction) {
         const timeLocal = new Date(transaction.timestamp).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
-        const itemsHTML = transaction.items.map(i => `<div class="receipt-item-line"><span>${i.qty}x ${i.name}</span><span>₱${i.total.toFixed(2)}</span></div>`).join('');
+        
+        const itemsHTML = transaction.items.map(i => 
+            `<div class="receipt-item-line"><span>${i.qty}x ${i.name}</span><span>₱${i.total.toFixed(2)}</span></div>`
+        ).join('');
+
         element.innerHTML = `
             <div class="receipt-header">
                 <div class="receipt-title">LLAVORE VARIETY STORE</div>
@@ -443,7 +496,6 @@
         }, 50);
     }
 
-    // MODIFIED: syncOfflineData function to ensure data is sent correctly
     async function syncOfflineData() {
         if (!navigator.onLine || syncQueue.length === 0) return;
         
@@ -452,7 +504,6 @@
         
         try {
             const syncPromises = unsynced.map(item => {
-                // Ensure the 'action' parameter is correctly included
                 const formData = new URLSearchParams(item);
                 return fetch(SHEET_URL, { 
                     method: "POST", 
@@ -463,25 +514,22 @@
 
             const results = await Promise.all(syncPromises);
 
-            // Check if all requests were successful
             if (results.every(res => res.ok)) {
                 alert(`✅ Sync complete! ${unsynced.length} offline transaction(s) processed.`);
-                syncQueue = []; // Clear queue only on full success
+                syncQueue = [];
                 localStorage.setItem("syncQueue", JSON.stringify(syncQueue));
-                await initializeApp(); // Refresh all data
+                await initializeApp();
             } else {
                 throw new Error("Some transactions failed to sync.");
             }
         } catch (e) {
             console.error("❌ Sync failed:", e);
             alert("Sync failed. Some transactions may not have been saved. Please check your internet connection and try again.");
-            // Note: On failure, syncQueue is not cleared, so it can be retried.
         } finally {
             showLoader(false);
         }
     }
     
-    // Placeholder functions for Admin panel
     async function loadSalesToday() { /* Logic for dashboard if needed */ }
     async function loadExpensesHistory() { /* Logic for expenses table */ }
     async function addProduct() { /* Logic to add product */ }
